@@ -16,10 +16,6 @@ using namespace nvcaffeparser1;
 namespace fs = boost::filesystem;
 
 
-int inputIndex, outputIndex;
-nvinfer1::DimsCHW inputDims, outputDims;
-
-
 #define CHECK(status)                                   \
 {                                                       \
     if (status != 0)                                    \
@@ -30,21 +26,12 @@ nvinfer1::DimsCHW inputDims, outputDims;
 }
 
 
-class Logger : public ILogger
-{
-    void log(Severity severity, const char* msg) override
-    {
-        // suppress info-level messages
-        //if (severity != Severity::kINFO)
-            std::cout << msg << std::endl;
-    }
-} gLogger;
-
-
 cv::Mat vec2Mat(cv::Mat& img)
 {
     Mat batch;
-    if (!img.empty()) { 
+
+    if (!img.empty())
+    { 
         const int width = img.cols;
         const int height = img.rows;
         const ptrdiff_t batchSize(1);
@@ -54,9 +41,11 @@ cv::Mat vec2Mat(cv::Mat& img)
         float* input_data = reinterpret_cast<float*>(batch.data);
         vector<Mat> ch;
         ch.reserve(img.channels());
-        for (ptrdiff_t iSample = 0; iSample < batchSize; iSample += 1) {
+        for (ptrdiff_t iSample = 0; iSample < batchSize; iSample += 1)
+        {
             ch.resize(0);
-            for (ptrdiff_t iCh = 0; iCh < img.channels(); iCh += 1) {
+            for (ptrdiff_t iCh = 0; iCh < img.channels(); iCh += 1)
+            {
                 Mat ttt = Mat(height, width, CV_32FC1, input_data);
                 ch.push_back(Mat(height, width, CV_32FC1, input_data));
                 input_data += height * width;
@@ -64,17 +53,61 @@ cv::Mat vec2Mat(cv::Mat& img)
             split(img, ch);
         }
     }
+
     return batch;
 }
 
 
-ICudaEngine * readTensorRTModel(const string& name)
+class Logger : public ILogger
 {
-    ICudaEngine *engine;
+    void log(Severity severity, const char* msg) override
+    {
+        // suppress info-level messages
+        // if (severity != Severity::kINFO)
+        std::cout << msg << std::endl;
+    }
+};
+
+
+class InferencePerformer
+{
+    public:
+        Size inferenceSize, displaySize;
+	Mat getMask(Mat img, bool deleteComponents);
+	void performInference(Mat &img);
+	InferencePerformer(const string &modelName, double ratio=0.0003, double alpha=0.33);
+	~InferencePerformer();
+    private:
+	double ratio, alpha;
+	vector<Mat> ch;
+	float *outputBuffer;
+	void *cudaBuffers[2];
+	cudaStream_t stream;
+	ICudaEngine *engine;
+	IExecutionContext *context;
+	int inputIndex, outputIndex;
+	DimsCHW inputDims, outputDims;
+	size_t inputSize, outputSize;
+	void readTensorRTModel(const string &modelName);
+	void initBuffers();
+	void doInference(float *input);
+	void restoreOutput();
+	void preprocess(Mat &img);
+	void delSmallComponents(Mat &mask);
+	void postprocess(Mat &mask, bool deleteComponents);
+	void blend(Mat &img, Mat &mask);
+};
+
+
+void InferencePerformer::readTensorRTModel(const string& modelName)
+{
+    Logger gLogger;
     char *gieModelStream{nullptr};
     size_t size{0};
-    std::ifstream file(name, std::ios::binary);
-    if (file.good()) {
+    ifstream file(modelName, ios::binary);
+    
+    if (file.good())
+    {
         file.seekg(0, file.end);
         size = file.tellg();
         file.seekg(0, file.beg);
@@ -83,148 +116,203 @@ ICudaEngine * readTensorRTModel(const string& name)
         file.read(gieModelStream, size);
         file.close();
     }
+    
     IRuntime* infer = createInferRuntime(gLogger);
     engine = infer->deserializeCudaEngine(gieModelStream, size, nullptr);
-    if (gieModelStream) delete [] gieModelStream;
-
-    for (int b = 0; b < engine -> getNbBindings(); ++b)
-    {
-        if (engine -> bindingIsInput(b))
-            inputIndex = b;
-        else
-            outputIndex = b;
-    }
-
-    inputDims = static_cast<nvinfer1::DimsCHW  &&>(engine -> getBindingDimensions(inputIndex));
-    outputDims = static_cast<nvinfer1::DimsCHW  &&>(engine -> getBindingDimensions(outputIndex));
-
-    return engine;
+    if (gieModelStream)
+        delete [] gieModelStream;
 }
 
-
-void doInference(IExecutionContext& context, float* input, float* output, int batchSize)
+void InferencePerformer::initBuffers()
 {
-    const ICudaEngine& engine = context.getEngine();
-    assert(engine.getNbBindings() == 2);
+    assert(engine->getNbBindings() == 2);
 
-    void* buffers[2];
-    int inputIndex, outputIndex;
-
-    for (int b = 0; b < engine.getNbBindings(); ++b)
+    for (int b = 0; b < engine->getNbBindings(); b++)
     {
-        if (engine.bindingIsInput(b))
+        if (engine->bindingIsInput(b))
             inputIndex = b;
         else
             outputIndex = b;
     }
 
-    size_t inputSize = batchSize * inputDims.c() * inputDims.h() * inputDims.w() * sizeof(float);
-    size_t outputSize = batchSize * outputDims.c() * outputDims.h() * outputDims.w() * sizeof(float);
+    inputDims = static_cast<DimsCHW &&>(engine->getBindingDimensions(inputIndex));
+    outputDims = static_cast<DimsCHW &&>(engine->getBindingDimensions(outputIndex));
+    inferenceSize = Size(inputDims.w(), inputDims.h());
+    displaySize = Size(1152, 624);
+    
+    int buf_size = outputDims.c() * outputDims.w() * outputDims.h();
+    outputBuffer = (float*)calloc(buf_size, sizeof(float));
+    
+    inputSize = 1 * inputDims.c() * inputDims.h() * inputDims.w() * sizeof(float);
+    outputSize = 1 * outputDims.c() * outputDims.h() * outputDims.w() * sizeof(float);
 
-    CHECK(cudaMalloc(&buffers[inputIndex], inputSize));
-    CHECK(cudaMalloc(&buffers[outputIndex], outputSize));
+    CHECK(cudaMalloc(&cudaBuffers[inputIndex], inputSize));
+    CHECK(cudaMalloc(&cudaBuffers[outputIndex], outputSize));
 
-    cudaStream_t stream;
     CHECK(cudaStreamCreate(&stream));
+}
 
-    CHECK(cudaMemcpyAsync(buffers[inputIndex], input, inputSize, cudaMemcpyHostToDevice, stream));
-    context.enqueue(batchSize, buffers, stream, nullptr);
-    CHECK(cudaMemcpyAsync(output, buffers[outputIndex], outputSize, cudaMemcpyDeviceToHost, stream));
+InferencePerformer::InferencePerformer(const string &modelName, double ratio, double alpha) : ratio(ratio), alpha(alpha)
+{
+    readTensorRTModel(modelName);
+    context = engine->createExecutionContext();
+    initBuffers();
+}
+
+void InferencePerformer::doInference(float* input)
+{
+    CHECK(cudaMemcpyAsync(cudaBuffers[inputIndex], input, inputSize, cudaMemcpyHostToDevice, stream));
+    context->enqueue(1, cudaBuffers, stream, nullptr);
+    CHECK(cudaMemcpyAsync(outputBuffer, cudaBuffers[outputIndex], outputSize, cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
+}
 
-    cudaStreamDestroy(stream);
-    CHECK(cudaFree(buffers[inputIndex]));
-    CHECK(cudaFree(buffers[outputIndex]));
+void InferencePerformer::restoreOutput()
+{
+    ch.clear();
+    float *resultData = outputBuffer;
+
+    for (int i = 0; i < outputDims.c(); i++)
+    {
+	Mat iclass(Size(outputDims.w(), outputDims.h()), CV_32FC1, resultData);
+	ch.push_back(iclass);
+	resultData += outputDims.h() * outputDims.w();
+    }
+}
+
+void InferencePerformer::preprocess(Mat &img)
+{
+    img.convertTo(img, CV_32FC3);
+    resize(img, img, inferenceSize, INTER_LINEAR);
+    img /= 255.0;
+}
+
+void InferencePerformer::delSmallComponents(Mat &mask)
+{
+    Mat components = Mat(mask.size(), CV_32S);
+    int area = mask.size().height * mask.size().width;
+    Mat stats, centroids;
+
+    int nLabels = connectedComponentsWithStats(mask, components, stats, centroids, 4, CV_32S);
+
+    for (int label = 1; label < nLabels; label++)
+    {
+        if ((stats.at<int>(label, CC_STAT_AREA)) > ratio * area)
+            continue;
+
+        mask.setTo(Scalar(0.0), components == label);
+    }
+}
+
+void InferencePerformer::postprocess(Mat &mask, bool deleteComponents)
+{
+    mask.convertTo(mask, CV_8U);
+    mask = 255 * mask;
+
+    if (deleteComponents)
+        delSmallComponents(mask);
+}
+
+void InferencePerformer::blend(Mat &img, Mat &mask)
+{
+    Mat tmp = img.clone();
+    tmp.setTo(Scalar(255, 0, 0), mask);
+    img = (1 - alpha) * img + alpha * tmp;
 }
 
 
-
-//             ******************** HARDCODE INSIDE ********************
-
-int main() {
-
-    string modelName = fs::canonical("../unet.engine").string();
-    //string imagePath = fs::canonical("../input/test.jpg").string();
-    string outImgPath = fs::canonical("../output/").string();
+Mat InferencePerformer::getMask(Mat img, bool deleteComponents)
+{
+    preprocess(img);
+    Mat batch = vec2Mat(img);
     
-    //int N = 3;
-
-    VideoCapture cap(0); // open the default camera
-    if(!cap.isOpened())  // check if we succeeded
-        return -1;
-
-    //===============================================================================
-
-
-    ICudaEngine *engine(readTensorRTModel(modelName));
-    IExecutionContext *context = engine->createExecutionContext();
-
-    int BUFF_SIZE = outputDims.c() * outputDims.h() * outputDims.w();
-    float *buf = new float[BUFF_SIZE];
+    doInference((float*)batch.data);
+    restoreOutput();
+    Mat mask = (ch[1] > ch[0]);
+    postprocess(mask, deleteComponents);
     
-    long long ms = 0;
-    
+    return mask;
+}
 
-    //##########################################################
-    //###########       PREPROCESSING              #############
-
-
-    imshow("", 0);
-    Mat img, resized, batch, outImage; //(imread(imagePath, CV_32F));
-    vector<Mat> ch;
-    namedWindow("segm", 1);
-
-    for (;;)
-    {
-
-        //##########################################################
-        //###########           INFERENCE              #############
-
-        //auto t_start = std::chrono::high_resolution_clock::now();
-        cap >> img;
-	img.convertTo(img, CV_32FC3);
-        cv::resize(img, resized, Size(inputDims.w(), inputDims.h()), INTER_AREA);
-	resized /= 255.0;
-	batch = vec2Mat(resized);
-
-	doInference(*context, (float*)batch.data, buf, 1);
+void InferencePerformer::performInference(Mat &img)
+{
+    Mat mask = getMask(img, true);
+    resize(img, img, displaySize, INTER_LINEAR);
+    resize(mask, mask, displaySize, INTER_NEAREST);
+    blend(img, mask);
+}
 
 
-        
-	//##########################################################
-        //###########          POSTPROCESSING           ############
-
-	float *resutlData = buf;
-
-    	for(int i = 0; i < outputDims.c(); i++)
-    	{
-        	cv::Mat iclass(Size(outputDims.w(), outputDims.h()), CV_32FC1, resutlData);
-        	ch.push_back(iclass);
-        	resutlData += outputDims.h() * outputDims.w();
-    	}
-
-        outImage = Mat(resized);
-	outImage.setTo(cv::Scalar(0, 255, 0), ch[1] > ch[0]);
-        cv::resize(outImage, img, Size(2 * inputDims.w(), 2 * inputDims.h()), INTER_AREA);
-
-        //auto t_end = std::chrono::high_resolution_clock::now();
-        //ms += std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
-
-	ch.clear();
-
-	
-	imshow("segm", img);
-	
-	if(waitKey(30) >= 0) break;
-	
-    	
-	//imwrite(outImgPath + "/img.png", outImage);
-    }
+InferencePerformer::~InferencePerformer()
+{
+    free(outputBuffer);
+   
+    cudaStreamDestroy(stream);
+    CHECK(cudaFree(cudaBuffers[inputIndex]));
+    CHECK(cudaFree(cudaBuffers[outputIndex]));
 
     context->destroy();
     engine->destroy();
+}
 
-    //cout << "avg inference time " << 1e-6 * ms / N << " ms" << endl;
+
+void crop(Mat &img, double alpha, double beta)
+{
+    auto sz = img.size();
+    int w = sz.width * alpha;
+    int x = (sz.width - w) / 2;
+    int h = sz.height * beta;
+    int y = (sz.height - h) / 2;
+    img = img(Rect(x, y, w, h));
+}
+
+
+int main(int argc, char *argv[])
+{
+    char *junk_ptr;
+    double alpha = 1.0;
+    double beta = 1.0;
+
+    if (argc == 3)
+    {
+	alpha = strtod(argv[1], &junk_ptr);
+	beta = strtod(argv[2], &junk_ptr);
+    }
+
+    InferencePerformer performer("../unet_lowq.engine");
+
+
+    VideoCapture cap(0);
+    if (!cap.isOpened())
+        return -1;
+
+
+    Mat img;
+    namedWindow("segm", 1);
+
+    long long ms = 0;
+    int N = 0;
+
+
+    auto t_start = chrono::high_resolution_clock::now();
+    
+    for (;; N++)
+    {
+        cap >> img;
+	crop(img, alpha, beta);
+
+	performer.performInference(img);
+	imshow("segm", img);
+	
+	if (waitKey(1) >= 0)
+	    break;
+    }
+
+    auto t_end = chrono::high_resolution_clock::now();
+    ms += chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+
+    cout << "avg inference time " << 1e-6 * ms / N << " ms" << endl;
+
 
     return 0;
 }
