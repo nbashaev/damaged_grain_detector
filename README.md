@@ -1,3 +1,3 @@
 # Damaged grain detector
 
-The profect is not finished yet
+The project is not finished yet
