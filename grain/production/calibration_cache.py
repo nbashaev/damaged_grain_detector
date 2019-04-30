@@ -1,17 +1,15 @@
-import os
-os.chdir('..')
 import pycuda.driver as cuda
-import pycuda.autoinit
 import numpy as np
 from PIL import Image
 import ctypes
 import tensorrt as trt
 import glob
 from random import shuffle
-from configs import INPUT_FOLDER, ONNX_FOLDER, CUR_MODEL
+from grain.configs import INPUT_FOLDER, ONNX_FOLDER, CUR_MODEL
+import os
 
 
-folder = os.path.join('production')
+folder = os.path.join('grain', 'production')
 onnx_path = os.path.join(ONNX_FOLDER, CUR_MODEL + '.onnx')
 cache_path = os.path.join(folder, 'cache', CUR_MODEL + '.bin')
 CALIBRATION_DATASET = os.path.join(INPUT_FOLDER, '*_led.bmp')

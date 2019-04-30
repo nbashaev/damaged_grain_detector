@@ -1,12 +1,12 @@
+from grain.configs import *
+from grain.models.models import *
 from mxnet import nd
 import numpy as np
 import cv2
-from configs import *
-import mxnet as mx
+import os
+from tqdm import tqdm
+import re
 
-import sys
-sys.path.append('./models')
-from models import *
 
 class LossRecorder:
 	def __init__(self, writer):
@@ -53,7 +53,6 @@ class LossRecorder:
 
 		for pic_name in self._pics:
 			self._writer.add_image(pic_name, self._pics[pic_name], epoch)
-
 
 def draw_mask(img, masks, w):
 	channels = cv2.split(img)

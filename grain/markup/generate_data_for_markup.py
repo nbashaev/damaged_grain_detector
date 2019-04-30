@@ -1,24 +1,14 @@
-import os
-os.chdir('..')
-
-import cv2
-from configs import *
-from tqdm import tqdm
-from utils import *
-from models.models import *
-
-
-MARKUP_PICTURES_FOLDER = "./markup/pictures/"
-MARKUP_MASKS_FOLDER = "./markup/masks/"
-LIST_NAME = "./markup/grn.001.txt"
-
-w, h = 1920, 1080
+from grain.utils import *
 
 
 if __name__ == '__main__':
+	MARKUP_PICTURES_FOLDER = "./grain/markup/pictures/"
+	MARKUP_MASKS_FOLDER = "./grain/markup/masks/"
+	LIST_NAME = "./grain/markup/grn.001.txt"
+	w, h = 1920, 1080
+
 	clear_folder(MARKUP_PICTURES_FOLDER)
 	clear_folder(MARKUP_MASKS_FOLDER)
-
 
 	model = current_model(w, h)
 

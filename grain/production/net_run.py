@@ -1,13 +1,9 @@
-import os
-os.chdir('..')
-
-import cv2
-from configs import *
-from utils import *
+from grain.utils import *
 import random
 
+
 if __name__ == '__main__':
-	w, h = 2 * WIDTH, 2 * HEIGHT
+	w, h = 5 * WIDTH, 5 * HEIGHT
 	model = current_model(w, h)
 
 

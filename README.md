@@ -1,3 +1,3 @@
 # Damaged grain detector
 
-The project is not finished yet
+This repo contains some parts of the code I wrote while I was working on damaged grain detector.

@@ -1,11 +1,7 @@
 import os
-os.chdir('..')
 
-from mxnet import nd
-from configs import *
-from utils import current_model
+from grain.utils import *
 from mxnet.contrib import onnx as onnx_mxnet
-import numpy as np
 import shutil
 
 
