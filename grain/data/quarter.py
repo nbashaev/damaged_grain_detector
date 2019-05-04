@@ -1,13 +1,7 @@
-import os
-os.chdir('..')
-
-import cv2
-from configs import *
-from tqdm import tqdm
-from utils import *
+from grain.utils import *
 
 
-folder = "./data/raw2/"
+folder = "./grain/data/raw2/"
 new_folder = INPUT_FOLDER
 
 clear_folder(new_folder)

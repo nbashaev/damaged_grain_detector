@@ -1,16 +1,8 @@
-import os
+from grain.utils import *
+from grain.data.aug_sandbox import seq_default
 
-import cv2
-import mxnet as mx
-from mxnet import nd
 from mxnet.gluon.data import dataset
 from imgaug import augmenters as iaa
-
-from configs import *
-from utils import *
-import sys
-sys.path.append('./data')
-from aug_sandbox import seq_default
 
 
 class ImageWithMaskDataset(dataset.Dataset):

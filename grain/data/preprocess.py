@@ -1,22 +1,13 @@
-import os
-from finetune_masks import get_mask
-
-import numpy as np
-import cv2
-from configs import *
-from tqdm import tqdm
-from utils import clear_folder
+from grain.utils import *
+from grain.data.finetune_masks import get_mask
 
 
 if __name__ == '__main__':
-	os.chdir('..')
-
 	clear_folder(PICTURES_FOLDER)
 	clear_folder(MASK_FOLDER)
 
 	train_list = open(TRAIN_LIST, 'w')
 	val_list = open(VAL_LIST, 'w')
-
 
 	for filename in tqdm(os.listdir(INPUT_FOLDER)):
 		parts = re.compile('[_.]').split(filename)
@@ -43,7 +34,6 @@ if __name__ == '__main__':
 
 			cv2.imwrite(os.path.join(PICTURES_FOLDER, name + '.jpg'), pic)
 			cv2.imwrite(os.path.join(MASK_FOLDER, name + '.png'), mask)
-
 
 	train_list.close()
 	val_list.close()

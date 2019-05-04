@@ -1,8 +1,8 @@
-import os
+from grain.configs import *
 import cv2
 import imgaug as ia
 from imgaug import augmenters as iaa
-from configs import *
+
 
 
 seq_default = iaa.Sequential([
@@ -15,8 +15,6 @@ seq_default = iaa.Sequential([
 
 
 if __name__ == '__main__':
-    os.chdir('..')
-
     PIC_LIST = os.listdir(PICTURES_FOLDER)
     MASK_LIST = os.listdir(MASK_FOLDER)
 

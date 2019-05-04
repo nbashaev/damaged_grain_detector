@@ -1,11 +1,8 @@
-import os
-os.chdir('..')
-
-from configs import *
+from grain.configs import *
 from tqdm import tqdm
 import cv2
 import numpy as np
-
+import re
 
 if __name__ == '__main__':
 	for filename in tqdm(os.listdir(INPUT_FOLDER)):

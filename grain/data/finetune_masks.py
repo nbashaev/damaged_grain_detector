@@ -1,8 +1,4 @@
-import os
-import numpy as np
-import cv2
-from configs import *
-from utils import *
+from grain.utils import *
 import random
 
 kernel_2_2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
@@ -45,7 +41,6 @@ def get_mask2(pic, img):
 
 
 if __name__ == '__main__':
-	os.chdir('..')
 	folder_name = INPUT_FOLDER
 
 	filename_list = os.listdir(folder_name)
